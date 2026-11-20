@@ -84,14 +84,6 @@ set(src
   ${src_multiline}
   )
 
-if(FLB_SYSTEM_WINDOWS)
-  set(src
-    ${src}
-    flb_dlfcn_win32.c
-    )
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /W2")
-endif()
-
 if(FLB_PARSER)
   set(src
     ${src}
@@ -101,13 +93,6 @@ if(FLB_PARSER)
     flb_parser_decoder.c
     flb_parser_ltsv.c
     flb_parser_logfmt.c
-    )
-endif()
-
-if(FLB_AVRO_ENCODER)
-  set(src
-    ${src}
-    flb_avro.c
     )
 endif()
 
@@ -170,13 +155,6 @@ if(FLB_LUAJIT)
     )
 endif()
 
-if(FLB_IN_KAFKA OR FLB_OUT_KAFKA)
-  set(src
-    ${src}
-    "flb_kafka.c"
-    )
-endif()
-
 # Link to libco
 set(extra_libs
   ${extra_libs}
@@ -229,21 +207,11 @@ include(CheckSymbolExists)
 check_symbol_exists(accept4 "sys/socket.h" HAVE_ACCEPT4)
 
 # Core dependencies
-if(FLB_SYSTEM_WINDOWS)
-  set(FLB_DEPS
-    "ws2_32.lib"
-    "crypt32.lib"
-    "Bcrypt.lib"
-    "Shlwapi.lib"
-    )
-else()
-  set(FLB_DEPS
-    ${FLB_DEPS}
-    ${CMAKE_DL_LIBS}
-    m
-    )
-endif()
-
+set(FLB_DEPS
+  ${FLB_DEPS}
+  ${CMAKE_DL_LIBS}
+  m
+  )
 # Link timer library
 if(CMAKE_SYSTEM_NAME MATCHES "Linux")
   set(FLB_DEPS
@@ -302,15 +270,6 @@ if(FLB_HTTP_SERVER)
     flb-http-server)
 endif()
 
-# AVRO Encoding
-if(FLB_AVRO_ENCODER)
-set(FLB_DEPS
-  ${FLB_DEPS}
-  avro-static
-  jansson
-  )
-endif()
-
 # Set static dependencies
 set(FLB_DEPS
   ${FLB_DEPS}
@@ -339,18 +298,18 @@ endif()
 
 # libyaml
 if(FLB_HAVE_LIBYAML)
-set(FLB_DEPS
-  ${FLB_DEPS}
-  yaml
-  )
+  set(FLB_DEPS
+    ${FLB_DEPS}
+    yaml
+    )
 endif()
 
 # UTF8 Encoding
 if(FLB_UTF8_ENCODER)
-set(FLB_DEPS
-  ${FLB_DEPS}
-  tutf8e
-  )
+  set(FLB_DEPS
+    ${FLB_DEPS}
+    tutf8e
+    )
 endif()
 
 # AWS specific
@@ -377,12 +336,6 @@ if(FLB_STREAM_PROCESSOR)
     )
 endif()
 
-if (MSVC)
-set(flb_rc_files
-  ${CMAKE_CURRENT_BINARY_DIR}/version.rc
-  )
-endif()
-
 # Shared Library
 if(FLB_SHARED_LIB)
   add_library(fluent-bit-shared SHARED ${src})
@@ -390,20 +343,9 @@ if(FLB_SHARED_LIB)
   set_target_properties(fluent-bit-shared
     PROPERTIES OUTPUT_NAME fluent-bit)
 
-  # Windows doesn't provide pthread (see winpthreads.c in mk_core).
-  if(CMAKE_SYSTEM_NAME MATCHES "Windows")
-    target_link_libraries(fluent-bit-shared ${FLB_DEPS})
-  else()
-    target_link_libraries(fluent-bit-shared ${FLB_DEPS} -lpthread)
-  endif()
 
-  if (MSVC)
-    set_target_properties(fluent-bit-shared
-      PROPERTIES PDB_NAME fluent-bit.dll)
-    target_link_options(fluent-bit-shared
-      PUBLIC /pdb:$<TARGET_PDB_FILE:fluent-bit-shared>)
-  endif()
-
+  target_link_libraries(fluent-bit-shared ${FLB_DEPS} -lpthread)
+  
   # Library install routines
   install(TARGETS fluent-bit-shared
     LIBRARY DESTINATION ${FLB_INSTALL_LIBDIR}
@@ -415,13 +357,7 @@ endif()
 add_library(fluent-bit-static STATIC ${src})
 add_sanitizers(fluent-bit-static)
 target_link_libraries(fluent-bit-static ${FLB_DEPS})
-
-if(MSVC)
-  # Rename the output for Windows environment to avoid naming issues
-  set_target_properties(fluent-bit-static PROPERTIES OUTPUT_NAME libfluent-bit)
-else()
-  set_target_properties(fluent-bit-static PROPERTIES OUTPUT_NAME fluent-bit)
-endif(MSVC)
+set_target_properties(fluent-bit-static PROPERTIES OUTPUT_NAME fluent-bit)
 
 if(FLB_JEMALLOC)
   target_link_libraries(fluent-bit-static libjemalloc)
@@ -430,13 +366,8 @@ endif()
 # Binary / Executable
 if(FLB_BINARY)
   find_package (Threads)
-  if (FLB_SYSTEM_WINDOWS)
-    add_executable(fluent-bit-bin fluent-bit.c flb_dump.c win32/winsvc.c ${flb_rc_files})
-  else()
-    add_executable(fluent-bit-bin fluent-bit.c flb_dump.c)
-  endif()
+  add_executable(fluent-bit-bin fluent-bit.c flb_dump.c)
   add_sanitizers(fluent-bit-bin)
-
 
   if(FLB_STATIC_CONF)
     add_dependencies(fluent-bit-bin flb-static-conf)
@@ -463,14 +394,6 @@ if(FLB_BINARY)
     ENABLE_EXPORTS ON)
   install(TARGETS fluent-bit-bin RUNTIME DESTINATION ${FLB_INSTALL_BINDIR} COMPONENT binary)
 
-  # Include PDB file (if available)
-  if (MSVC)
-    target_link_options(fluent-bit-bin
-      PUBLIC /pdb:$<TARGET_PDB_FILE:fluent-bit-bin>)
-    install(FILES $<TARGET_PDB_FILE:fluent-bit-bin>
-      DESTINATION "${FLB_INSTALL_BINDIR}")
-  endif()
-
   # Detect init system, install upstart, systemd or init.d script
   if(IS_DIRECTORY /lib/systemd/system)
     set(FLB_SYSTEMD_SCRIPT "${PROJECT_SOURCE_DIR}/init/${FLB_OUT_NAME}.service")
@@ -492,19 +415,11 @@ if(FLB_BINARY)
     # FIXME: should we support Sysv init script ?
   endif()
 
-  if(FLB_SYSTEM_WINDOWS)
-    install(FILES
-      "${PROJECT_SOURCE_DIR}/conf/fluent-bit-win32.conf"
-      DESTINATION ${FLB_INSTALL_CONFDIR}
-      COMPONENT binary
-      RENAME "${FLB_OUT_NAME}.conf")
-  else()
-    install(FILES
-      "${PROJECT_SOURCE_DIR}/conf/fluent-bit.conf"
-      DESTINATION ${FLB_INSTALL_CONFDIR}
-      COMPONENT binary
-      RENAME "${FLB_OUT_NAME}.conf")
-  endif()
+  install(FILES
+    "${PROJECT_SOURCE_DIR}/conf/fluent-bit.conf"
+    DESTINATION ${FLB_INSTALL_CONFDIR}
+    COMPONENT binary
+    RENAME "${FLB_OUT_NAME}.conf")
 
   install(FILES
     "${PROJECT_SOURCE_DIR}/conf/parsers.conf"
